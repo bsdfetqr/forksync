@@ -1,0 +1,43 @@
+name: Recursive Global Sync
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run Sync Script
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
+        run: python sync.py
+
+      - name: Update Repository State
+        run: |
+          git config --global user.name "Sync Bot"
+          git config --global user.email "bot@github.com"
+          
+          # Add existing files or stage deletions
+          git add last_repo.txt error_repos.md || true
+          
+          # Check if there are actual changes (including deletions)
+          if ! git diff --cached --quiet; then
+            git commit -m "Update sync state (Checkpoint/Errors) [skip ci]"
+            git push
+          else
+            echo "No state changes to commit."
+          fi
+
+      - name: Re-trigger if unfinished
+        env:
+          GH_TOKEN: ${{ secrets.MY_SYNC_TOKEN }}
+        run: |
+          if [ -f "last_repo.txt" ]; then
+            echo "🔄 Found checkpoint. Re-triggering workflow..."
+            gh workflow run massive_sync.yml
+          fi
